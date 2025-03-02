@@ -1,11 +1,7 @@
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
-import { connectDB } from "./config/db";
 import authRoutes from "./route/authRoutes";
-import lessonRoutes from "./route/lessonRoutes";
-// import instructorRoutes from "./route/instructorRoutes";
-import timeSlotRoutes from "./route/timeSlotRoutes";
-import { authenticateUser } from "./middleware/authMiddleware";
+
 import instructorRouter from "./route/instructorRoutes";
 import swimmerRouter from "./route/swimmerRoutes";
 import mongoose from "mongoose";
