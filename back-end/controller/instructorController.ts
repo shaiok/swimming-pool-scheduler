@@ -1,140 +1,327 @@
-import { Request, Response } from "express"; 
-import { InstructorService } from "../services/InstructorService";
+import { Request, Response } from 'express';
+import mongoose from 'mongoose';
+import InstructorService from '../services/InstructorService';
 
-export class InstructorController {
-  // Set Instructor Availability
-  static async setAvailability(req: Request, res: Response): Promise<void> {
+/**
+ * Controller for instructor operations
+ */
+class InstructorController {
+  /**
+   * Get all instructors
+   * GET /api/instructors
+   */
+  async getAllInstructors(req: Request, res: Response): Promise<void> {
     try {
-      const { instructorId, availability } = req.body;
+      const instructors = await InstructorService.getAllInstructors();
       
-      if (!instructorId || !availability) {
-        res.status(400).json({ message: "Instructor ID and availability are required." });
-        return;
-      }
-      
-      const result = await InstructorService.setAvailability(instructorId, availability);
-      res.status(200).json(result);
+      res.status(200).json({
+        success: true,
+        count: instructors.length,
+        data: instructors
+      });
     } catch (error) {
-      console.error("❌ Error setting availability:", error);
-      res.status(400).json({ message: (error as Error).message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve instructors',
+        error: errorMessage
+      });
     }
   }
   
-  // Get Instructor's Weekly Schedule
-  static async getInstructorSchedule(req: Request, res: Response): Promise<void> {
+  /**
+   * Get instructor by ID
+   * GET /api/instructors/:id
+   */
+  async getInstructorById(req: Request, res: Response): Promise<void> {
     try {
-      const { instructorId, startDate } = req.query;
+      const { id } = req.params;
       
-      if (!instructorId) {
-        res.status(400).json({ message: "Instructor ID is required." });
+      // Validate ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Invalid instructor ID format' 
+        });
         return;
       }
       
-      const result = await InstructorService.getInstructorSchedule(
-        instructorId as string, 
-        startDate as string | undefined
+      // Get the instructor
+      const instructor = await InstructorService.getInstructorById(id);
+      
+      if (!instructor) {
+        res.status(404).json({ 
+          success: false, 
+          message: 'Instructor not found' 
+        });
+        return;
+      }
+      
+      res.status(200).json({
+        success: true,
+        data: instructor
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve instructor',
+        error: errorMessage
+      });
+    }
+  }
+  
+  /**
+   * Update instructor availability
+   * PUT /api/instructors/:id/availability
+   */
+  async updateAvailability(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { availability } = req.body;
+      
+      // Validate ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Invalid instructor ID format' 
+        });
+        return;
+      }
+      
+      // Validate availability data
+      if (!availability || !Array.isArray(availability)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Valid availability array is required' 
+        });
+        return;
+      }
+      
+      // Update the instructor's availability
+      const instructor = await InstructorService.updateAvailability(id, availability);
+      
+      if (!instructor) {
+        res.status(404).json({ 
+          success: false, 
+          message: 'Instructor not found' 
+        });
+        return;
+      }
+      
+      res.status(200).json({
+        success: true,
+        message: 'Instructor availability updated successfully',
+        data: instructor
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update instructor availability',
+        error: errorMessage
+      });
+    }
+  }
+  
+  /**
+   * Add a single availability slot
+   * POST /api/instructors/:id/availability
+   */
+  async addAvailabilitySlot(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { date, startTime, endTime } = req.body;
+      
+      // Validate ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Invalid instructor ID format' 
+        });
+        return;
+      }
+      
+      // Validate required fields
+      if (!date || !startTime || !endTime) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Date, start time, and end time are required' 
+        });
+        return;
+      }
+      
+      // Add the availability slot
+      const instructor = await InstructorService.addAvailabilitySlot(id, { date, startTime, endTime });
+      
+      if (!instructor) {
+        res.status(404).json({ 
+          success: false, 
+          message: 'Instructor not found' 
+        });
+        return;
+      }
+      
+      res.status(200).json({
+        success: true,
+        message: 'Availability slot added successfully',
+        data: instructor
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to add availability slot',
+        error: errorMessage
+      });
+    }
+  }
+  
+  /**
+   * Remove an availability slot
+   * DELETE /api/instructors/:id/availability
+   */
+  async removeAvailabilitySlot(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { date, startTime } = req.body;
+      
+      // Validate ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Invalid instructor ID format' 
+        });
+        return;
+      }
+      
+      // Validate required fields
+      if (!date || !startTime) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Date and start time are required' 
+        });
+        return;
+      }
+      
+      // Remove the availability slot
+      const instructor = await InstructorService.removeAvailabilitySlot(id, date, startTime);
+      
+      if (!instructor) {
+        res.status(404).json({ 
+          success: false, 
+          message: 'Instructor not found' 
+        });
+        return;
+      }
+      
+      res.status(200).json({
+        success: true,
+        message: 'Availability slot removed successfully',
+        data: instructor
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to remove availability slot',
+        error: errorMessage
+      });
+    }
+  }
+  
+  /**
+   * Update instructor swimming styles
+   * PUT /api/instructors/:id/swimmingstyles
+   */
+  async updateSwimmingStyles(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { swimmingStyles } = req.body;
+      
+      // Validate ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Invalid instructor ID format' 
+        });
+        return;
+      }
+      
+      // Validate swimming styles
+      if (!swimmingStyles || !Array.isArray(swimmingStyles)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Valid swimming styles array is required' 
+        });
+        return;
+      }
+      
+      // Update the instructor's swimming styles
+      const instructor = await InstructorService.updateSwimmingStyles(id, swimmingStyles);
+      
+      if (!instructor) {
+        res.status(404).json({ 
+          success: false, 
+          message: 'Instructor not found' 
+        });
+        return;
+      }
+      
+      res.status(200).json({
+        success: true,
+        message: 'Instructor swimming styles updated successfully',
+        data: instructor
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update instructor swimming styles',
+        error: errorMessage
+      });
+    }
+  }
+  
+  /**
+   * Get available instructors
+   * GET /api/instructors/available
+   */
+  async getAvailableInstructors(req: Request, res: Response): Promise<void> {
+    try {
+      const { date, startTime, endTime, swimmingStyle } = req.query;
+      
+      // Validate required query parameters
+      if (!date || !startTime) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Date and start time are required query parameters' 
+        });
+        return;
+      }
+      
+      // Get available instructors
+      const instructors = await InstructorService.getAvailableInstructors(
+        date as string,
+        startTime as string,
+        endTime as string | undefined,
+        swimmingStyle as string | undefined
       );
-      res.status(200).json(result);
+      
+      res.status(200).json({
+        success: true,
+        count: instructors.length,
+        data: instructors
+      });
     } catch (error) {
-      console.error("❌ Error fetching instructor schedule:", error);
-      res.status(400).json({ message: (error as Error).message });
-    }
-  }
-
-  // Update Instructor Profile
-  static async updateProfile(req: Request, res: Response): Promise<void> {
-    try {
-      const { instructorId } = req.params;
-      const updateData = req.body;
-      
-      if (!instructorId) {
-        res.status(400).json({ message: "Instructor ID is required." });
-        return;
-      }
-      
-      const result = await InstructorService.updateProfile(instructorId, updateData);
-      res.status(200).json(result);
-    } catch (error) {
-      console.error("❌ Error updating instructor profile:", error);
-      res.status(400).json({ message: (error as Error).message });
-    }
-  }
-
-  // Cancel a Lesson (Instructor perspective)
-  static async cancelLesson(req: Request, res: Response): Promise<void> {
-    try {
-      const { instructorId, lessonId } = req.body;
-      
-      if (!instructorId || !lessonId) {
-        res.status(400).json({ message: "Instructor ID and Lesson ID are required." });
-        return;
-      }
-      
-      const result = await InstructorService.cancelLesson(instructorId, lessonId);
-      res.status(200).json(result);
-    } catch (error) {
-      console.error("❌ Error canceling lesson:", error);
-      res.status(400).json({ message: (error as Error).message });
-    }
-  }
-
-  // Get Instructor Lessons
-  static async getLessons(req: Request, res: Response): Promise<void> {
-    try {
-      const { instructorId } = req.params;
-      const { status, fromDate, toDate } = req.query;
-      
-      if (!instructorId) {
-        res.status(400).json({ message: "Instructor ID is required." });
-        return;
-      }
-      
-      const filters: any = {};
-      if (status) filters.status = status;
-      if (fromDate) filters.fromDate = new Date(fromDate as string);
-      if (toDate) filters.toDate = new Date(toDate as string);
-      
-      const lessons = await InstructorService.getLessons(instructorId, filters);
-      res.status(200).json(lessons);
-    } catch (error) {
-      console.error("❌ Error fetching instructor lessons:", error);
-      res.status(400).json({ message: (error as Error).message });
-    }
-  }
-
-  // Get Instructor Statistics
-  static async getStatistics(req: Request, res: Response): Promise<void> {
-    try {
-      const { instructorId } = req.params;
-      
-      if (!instructorId) {
-        res.status(400).json({ message: "Instructor ID is required." });
-        return;
-      }
-      
-      const statistics = await InstructorService.getStatistics(instructorId);
-      res.status(200).json(statistics);
-    } catch (error) {
-      console.error("❌ Error fetching instructor statistics:", error);
-      res.status(400).json({ message: (error as Error).message });
-    }
-  }
-
-  // Get Instructor Details
-  static async getInstructorDetails(req: Request, res: Response): Promise<void> {
-    try {
-      const { instructorId } = req.params;
-      
-      if (!instructorId) {
-        res.status(400).json({ message: "Instructor ID is required." });
-        return;
-      }
-      
-      const details = await InstructorService.getInstructorDetails(instructorId);
-      res.status(200).json(details);
-    } catch (error) {
-      console.error("❌ Error fetching instructor details:", error);
-      res.status(400).json({ message: (error as Error).message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to find available instructors',
+        error: errorMessage
+      });
     }
   }
 }
+
+export default new InstructorController();

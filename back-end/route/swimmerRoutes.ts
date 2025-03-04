@@ -1,46 +1,86 @@
-// swimmerRoutes.ts
-import express from "express";
-import { SwimmerController } from "../controller/swimmerController";
-import { authenticateUser } from "../middleware/authMiddleware";
+import express from 'express';
+import SwimmerController from '../controller/swimmerController';
+import { authenticateUser, authorizeRoles } from '../middleware/authMiddleware';
 
 const router = express.Router();
 
-// Get available instructors (adjust service method if needed)
-router.get("/available-instructors/:swimStyle", authenticateUser, async (req, res) => {
-  try {
-    const { swimStyle } = req.params;
-    
-    // The service needs to be updated to include this method or we can call scheduleService
-    const scheduleController = require("../controllers/ScheduleController").ScheduleController;
-    req.query.swimStyle = swimStyle;
-    return scheduleController.findAvailableSlots(req, res);
-  } catch (error) {
-    res.status(400).json({ message: (error as Error).message });
-  }
-});
+/**
+ * @route   GET /api/swimmers/timeslots
+ * @desc    Find available time slots
+ * @access  Public
+ * @query   {string} date - Date to check (optional)
+ * @query   {string} swimStyle - Swimming style to filter by (optional)
+ * @query   {string} lessonType - Lesson type preference (optional, 'private' or 'group')
+ */
+router.get('/timeslots', SwimmerController.findAvailableTimeSlots);
 
-// Get swimmer schedule - map to booked lessons
-router.get("/schedule/:swimmerId", authenticateUser, async (req, res) => {
-  req.params.swimmerId = req.params.swimmerId;
-  return SwimmerController.getBookedLessons(req, res);
-});
+/**
+ * @route   GET /api/swimmers/:id
+ * @desc    Get swimmer profile
+ * @access  Private (Swimmer or Admin)
+ * @param   {string} id - Swimmer ID
+ */
+router.get(
+  '/:id',
+  authenticateUser,
+  authorizeRoles('swimmer'),
+  SwimmerController.getSwimmerProfile
+);
 
-// Book a lesson
-router.post("/:swimmerId/book", authenticateUser, SwimmerController.bookLesson);
+/**
+ * @route   PUT /api/swimmers/:id/preferences
+ * @desc    Update swimmer preferences
+ * @access  Private (Swimmer only)
+ * @param   {string} id - Swimmer ID
+ * @body    {array} swimmingStyles - Array of swimming styles (optional)
+ * @body    {string} preferredLessonType - Preferred lesson type (optional, 'private', 'group', or 'both')
+ */
+router.put(
+  '/:id/preferences',
+  authenticateUser,
+  authorizeRoles('swimmer'),
+  SwimmerController.updatePreferences
+);
 
-// Cancel a lesson
-router.post("/:swimmerId/cancel", authenticateUser, async (req, res) => {
-  req.body.swimmerId = req.params.swimmerId;
-  return SwimmerController.cancelLesson(req, res);
-});
+/**
+ * @route   POST /api/swimmers/:id/lessons
+ * @desc    Book a lesson
+ * @access  Private (Swimmer only)
+ * @param   {string} id - Swimmer ID
+ * @body    {string} timeSlotId - Time slot ID
+ * @body    {string} swimStyle - Swimming style for the lesson
+ */
+router.post(
+  '/:id/lessons',
+  authorizeRoles('swimmer'),
+  SwimmerController.bookLesson
+);
 
-// Get swimmer details
-router.get("/:swimmerId", authenticateUser, SwimmerController.getSwimmerDetails);
+/**
+ * @route   DELETE /api/swimmers/:id/lessons/:lessonId
+ * @desc    Cancel a lesson
+ * @access  Private (Swimmer only)
+ * @param   {string} id - Swimmer ID
+ * @param   {string} lessonId - Lesson ID
+ */
+router.delete(
+  '/:id/lessons/:lessonId',
+  authenticateUser,
+  authorizeRoles('swimmer'),
+  SwimmerController.cancelLesson
+);
 
-// Update swimmer profile
-router.put("/:swimmerId", authenticateUser, SwimmerController.updateProfile);
-
-// Get swimmer statistics
-router.get("/:swimmerId/statistics", authenticateUser, SwimmerController.getStatistics);
+/**
+ * @route   GET /api/swimmers/:id/lessons
+ * @desc    Get swimmer lessons
+ * @access  Private (Swimmer or Admin)
+ * @param   {string} id - Swimmer ID
+ */
+router.get(
+  '/:id/lessons',
+  authenticateUser,
+  authorizeRoles('swimmer'),
+  SwimmerController.getSwimmerLessons
+);
 
 export default router;

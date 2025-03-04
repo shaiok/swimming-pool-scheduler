@@ -1,39 +1,95 @@
-// scheduleRoutes.ts
 import express from "express";
-import { ScheduleController } from "../controller/scheduleController";
-import { authenticateUser } from "../middleware/authMiddleware";
-import { SwimmerController } from "../controller/swimmerController";
+import WeeklyScheduleController from "../controller/scheduleController";
+import { authenticateUser, authorizeRoles } from "../middleware/authMiddleware";
 
 const router = express.Router();
 
-// Generate weekly schedule - Keeping as-is but using controller
-router.post("/generate", authenticateUser, ScheduleController.getWeeklyAvailability);
+/**
+ * @route   GET /api/schedules
+ * @desc    Get all weekly schedules
+ * @access  Public
+ */
+router.get("/", WeeklyScheduleController.getAllWeeklySchedules);
 
-// Get available lessons
-router.get("/available", authenticateUser, ScheduleController.findAvailableSlots);
+/**
+ * @route   GET /api/schedules/current
+ * @desc    Get current active weekly schedule
+ * @access  Public
+ */
+router.get("/current", WeeklyScheduleController.getCurrentWeeklySchedule);
 
-// Book a lesson - Redirect to lesson controller
-router.post("/book", authenticateUser, async (req, res): Promise<void> => {
-  if (!req.user) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
+/**
+ * @route   GET /api/schedules/overlapping
+ * @desc    Find overlapping schedules
+ * @access  Public
+ */
+router.get("/overlapping", WeeklyScheduleController.findOverlappingSchedules);
 
-  const { id, role } = req.user;
-  
-  if (role === "swimmer") {
-    // Create new params object with swimmerId
-    req.params = { ...req.params, swimmerId: id };
-    await SwimmerController.bookLesson(req, res);
-  } else {
-    res.status(403).json({ message: "Only swimmers can book lessons" });
-  }
-});
+/**
+ * @route   GET /api/schedules/:id
+ * @desc    Get a weekly schedule by ID
+ * @access  Public
+ */
+router.get("/:id", WeeklyScheduleController.getWeeklyScheduleById);
 
-// Get weekly schedule
-router.get("/weekly", authenticateUser, ScheduleController.getWeeklySchedule);
+/**
+ * @route   POST /api/schedules
+ * @desc    Create a new weekly schedule
+ * @access  Private (Admin only)
+ */
+router.post(
+  "/",
+  authenticateUser,
+  authorizeRoles("admin"),
+  WeeklyScheduleController.createWeeklySchedule
+);
 
-// Check for schedule conflicts
-router.get("/conflicts", authenticateUser, ScheduleController.checkConflicts);
+/**
+ * @route   PUT /api/schedules/:id
+ * @desc    Update a weekly schedule
+ * @access  Private (Admin only)
+ */
+router.put(
+  "/:id",
+  authenticateUser,
+  authorizeRoles("admin"),
+  WeeklyScheduleController.updateWeeklySchedule
+);
+
+/**
+ * @route   POST /api/schedules/:id/timeslots
+ * @desc    Add time slots to a weekly schedule
+ * @access  Private (Admin only)
+ */
+router.post(
+  "/:id/timeslots",
+  authenticateUser,
+  authorizeRoles("admin"),
+  WeeklyScheduleController.addTimeSlotsToSchedule
+);
+
+/**
+ * @route   DELETE /api/schedules/:id/timeslots
+ * @desc    Remove time slots from a weekly schedule
+ * @access  Private (Admin only)
+ */
+router.delete(
+  "/:id/timeslots",
+  authenticateUser,
+  authorizeRoles("admin"),
+  WeeklyScheduleController.removeTimeSlotsFromSchedule
+);
+
+/**
+ * @route   DELETE /api/schedules/:id
+ * @desc    Delete a weekly schedule
+ * @access  Private (Admin only)
+ */
+router.delete(
+  "/:id",
+  authenticateUser,
+  authorizeRoles("admin"),
+  WeeklyScheduleController.deleteWeeklySchedule
+);
 
 export default router;

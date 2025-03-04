@@ -1,225 +1,400 @@
-import mongoose from "mongoose";
-import { Lesson } from "../model/lesson";
-import { Instructor } from "../model/instructor";
-import { Swimmer } from "../model/swimmer";
-import { ScheduleService } from "./ScheduleService ";
+import mongoose from 'mongoose';
+import { ILesson } from '../model/lesson';
+import { ITimeSlot } from '../model/timeSlot';
+import { IUser } from '../model/user';
 
-export class LessonService {
-  // Get a lesson by ID
-  static async getLesson(lessonId: string) {
-    const lesson = await Lesson.findById(lessonId)
-      .populate("instructor swimmers");
+// Get models
+const Lesson = mongoose.model<ILesson>('Lesson');
+const TimeSlot = mongoose.model<ITimeSlot>('TimeSlot');
+const User = mongoose.model<IUser>('User');
+
+/**
+ * Service for lesson operations
+ */
+class LessonService {
+  /**
+   * Create a new lesson
+   * @param lessonData - Lesson data
+   * @returns The created lesson
+   */
+  async createLesson(lessonData: {
+    instructorId: mongoose.Types.ObjectId | string;
+    students: (mongoose.Types.ObjectId | string)[];
+    type: 'private' | 'group';
+    swimStyle: string;
+    timeSlotId: mongoose.Types.ObjectId | string;
+  }): Promise<ILesson> {
+    try {
+      // Validate the data
+      await this.validateLessonData(lessonData);
       
-    if (!lesson) {
-      throw new Error("Lesson not found");
+      // Create the lesson
+      const lesson = new Lesson({
+        instructorId: lessonData.instructorId,
+        students: lessonData.students,
+        type: lessonData.type,
+        swimStyle: lessonData.swimStyle
+      });
+      
+      await lesson.save();
+      
+      // Update the time slot
+      await TimeSlot.findByIdAndUpdate(lessonData.timeSlotId, {
+        $push: { lessons: lesson._id },
+        $inc: { currentCapacity: lessonData.students.length }
+      });
+      
+      return lesson;
+    } catch (error) {
+      throw error;
     }
-    
-    return lesson;
   }
   
-  // Get all lessons with various filters
-  static async getLessons(filters: {
-    status?: string;
+  /**
+   * Get a lesson by ID
+   * @param lessonId - Lesson ID
+   * @param populate - Whether to populate related fields (default: false)
+   * @returns The lesson or null if not found
+   */
+  async getLessonById(
+    lessonId: mongoose.Types.ObjectId | string,
+    populate: boolean = false
+  ): Promise<ILesson | null> {
+    try {
+      // Create query
+      let query = Lesson.findById(lessonId);
+      
+      // Populate related fields if requested
+      if (populate) {
+        query = query
+          .populate('instructorId', 'firstName lastName')
+          .populate('students', 'firstName lastName');
+      }
+      
+      // Execute query
+      return await query.exec();
+    } catch (error) {
+      throw error;
+    }
+  }
+  
+  /**
+   * Get all lessons with optional filtering
+   * @param filters - Optional filters
+   * @returns Array of lessons
+   */
+  async getAllLessons(filters: {
+    instructorId?: mongoose.Types.ObjectId | string;
+    studentId?: mongoose.Types.ObjectId | string;
+    type?: 'private' | 'group';
     swimStyle?: string;
-    instructorId?: string;
-    swimmerId?: string;
-    fromDate?: Date;
-    toDate?: Date;
-    lessonType?: string;
-  } = {}) {
-    let query: any = {};
-    
-    if (filters.status) {
-      query.status = filters.status;
-    }
-    
-    if (filters.swimStyle) {
-      query.swimStyle = filters.swimStyle;
-    }
-    
-    if (filters.instructorId) {
-      query.instructor = filters.instructorId;
-    }
-    
-    if (filters.swimmerId) {
-      query.swimmers = filters.swimmerId;
-    }
-    
-    if (filters.lessonType) {
-      query.lessonType = filters.lessonType;
-    }
-    
-    if (filters.fromDate || filters.toDate) {
-      query.lessonDate = {};
-      if (filters.fromDate) query.lessonDate.$gte = filters.fromDate;
-      if (filters.toDate) query.lessonDate.$lte = filters.toDate;
-    }
-    
-    const lessons = await Lesson.find(query)
-      .populate("instructor swimmers")
-      .sort({ lessonDate: 1, startTime: 1 });
+  } = {}): Promise<ILesson[]> {
+    try {
+      // Build query
+      const query: any = {};
       
-    return lessons;
+      // Add filters if provided
+      if (filters.instructorId) {
+        query.instructorId = filters.instructorId;
+      }
+      
+      if (filters.studentId) {
+        query.students = filters.studentId;
+      }
+      
+      if (filters.type) {
+        query.type = filters.type;
+      }
+      
+      if (filters.swimStyle) {
+        query.swimStyle = filters.swimStyle;
+      }
+      
+      // Execute query
+      return await Lesson.find(query)
+        .populate('instructorId', 'firstName lastName')
+        .populate('students', 'firstName lastName')
+        .sort({ createdAt: -1 });
+    } catch (error) {
+      throw error;
+    }
   }
   
-  // Update lesson status
-  static async updateLessonStatus(lessonId: string, status: "scheduled" | "completed" | "canceled") {
-    const lesson = await Lesson.findById(lessonId);
-    
-    if (!lesson) {
-      throw new Error("Lesson not found");
+  /**
+   * Add a student to a lesson
+   * @param lessonId - Lesson ID
+   * @param studentId - Student ID
+   * @returns The updated lesson or null if not found
+   */
+  async addStudentToLesson(
+    lessonId: mongoose.Types.ObjectId | string,
+    studentId: mongoose.Types.ObjectId | string
+  ): Promise<ILesson | null> {
+    try {
+      // Get the lesson
+      const lesson = await Lesson.findById(lessonId);
+      
+      if (!lesson) {
+        return null;
+      }
+      
+      // Check if this is a private lesson
+      if (lesson.type === 'private' && lesson.students.length > 0) {
+        throw new Error('Cannot add more students to a private lesson');
+      }
+      
+      // Check if student is already in the lesson
+      if (lesson.students.some(id => id.toString() === studentId.toString())) {
+        throw new Error('Student is already in the lesson');
+      }
+      
+      // Find the time slot associated with this lesson
+      const timeSlot = await TimeSlot.findOne({ lessons: lessonId });
+      
+      if (!timeSlot) {
+        throw new Error('Time slot not found for this lesson');
+      }
+      
+      // Check if time slot has capacity
+      if (timeSlot.currentCapacity >= timeSlot.maxCapacity) {
+        throw new Error('Time slot is at maximum capacity');
+      }
+      
+      // Add the student to the lesson
+      lesson.students.push(studentId as any);
+      await lesson.save();
+      
+      // Update the time slot capacity
+      timeSlot.currentCapacity += 1;
+      await timeSlot.save();
+      
+      // Return the updated lesson
+      return await Lesson.findById(lessonId)
+        .populate('instructorId', 'firstName lastName')
+        .populate('students', 'firstName lastName');
+    } catch (error) {
+      throw error;
     }
-    
-    lesson.status = status;
-    await lesson.save();
-    
-    return lesson;
   }
   
-  // Add a swimmer to a group lesson
-  static async addSwimmerToLesson(lessonId: string, swimmerId: string) {
-    const lesson = await Lesson.findById(lessonId);
-    
-    if (!lesson) {
-      throw new Error("Lesson not found");
+  /**
+   * Remove a student from a lesson
+   * @param lessonId - Lesson ID
+   * @param studentId - Student ID
+   * @returns The updated lesson or null if not found
+   */
+  async removeStudentFromLesson(
+    lessonId: mongoose.Types.ObjectId | string,
+    studentId: mongoose.Types.ObjectId | string
+  ): Promise<ILesson | null> {
+    try {
+      // Get the lesson
+      const lesson = await Lesson.findById(lessonId);
+      
+      if (!lesson) {
+        return null;
+      }
+      
+      // Check if student is in the lesson
+      if (!lesson.students.some(id => id.toString() === studentId.toString())) {
+        throw new Error('Student is not in the lesson');
+      }
+      
+      // Find the time slot associated with this lesson
+      const timeSlot = await TimeSlot.findOne({ lessons: lessonId });
+      
+      // Remove the student from the lesson
+      lesson.students = lesson.students.filter(id => id.toString() !== studentId.toString());
+      
+      // If no students left, delete the lesson
+      if (lesson.students.length === 0) {
+        await Lesson.findByIdAndDelete(lessonId);
+        
+        // Update the time slot
+        if (timeSlot) {
+          timeSlot.lessons = timeSlot.lessons.filter(id => id.toString() !== lessonId.toString());
+          timeSlot.currentCapacity = Math.max(0, timeSlot.currentCapacity - 1);
+          await timeSlot.save();
+        }
+        
+        return null;
+      }
+      
+      // Save the updated lesson
+      await lesson.save();
+      
+      // Update the time slot capacity
+      if (timeSlot) {
+        timeSlot.currentCapacity = Math.max(0, timeSlot.currentCapacity - 1);
+        await timeSlot.save();
+      }
+      
+      // Return the updated lesson
+      return await Lesson.findById(lessonId)
+        .populate('instructorId', 'firstName lastName')
+        .populate('students', 'firstName lastName');
+    } catch (error) {
+      throw error;
     }
-    
-    if (lesson.lessonType !== "group") {
-      throw new Error("Cannot add swimmers to a private lesson");
-    }
-    
-    // Check if the lesson is already full (max 4 swimmers)
-    if (lesson.swimmers.length >= 4) {
-      throw new Error("Lesson is already at maximum capacity");
-    }
-    
-    // Check if swimmer is already in the lesson
-    if (lesson.swimmers.some(id => id.toString() === swimmerId)) {
-      throw new Error("Swimmer is already enrolled in this lesson");
-    }
-    
-    // Add the swimmer
-    lesson.swimmers.push(new mongoose.Types.ObjectId(swimmerId));
-    await lesson.save();
-    
-    return lesson;
   }
   
-  // Remove a swimmer from a lesson
-  static async removeSwimmerFromLesson(lessonId: string, swimmerId: string) {
-    const lesson = await Lesson.findById(lessonId);
-    
-    if (!lesson) {
-      throw new Error("Lesson not found");
+  /**
+   * Cancel a lesson
+   * @param lessonId - Lesson ID
+   * @returns True if cancelled successfully, false if not found
+   */
+  async cancelLesson(lessonId: mongoose.Types.ObjectId | string): Promise<boolean> {
+    try {
+      // Get the lesson
+      const lesson = await Lesson.findById(lessonId);
+      
+      if (!lesson) {
+        return false;
+      }
+      
+      // Find the time slot associated with this lesson
+      const timeSlot = await TimeSlot.findOne({ lessons: lessonId });
+      
+      // Delete the lesson
+      await Lesson.findByIdAndDelete(lessonId);
+      
+      // Update the time slot
+      if (timeSlot) {
+        timeSlot.lessons = timeSlot.lessons.filter(id => id.toString() !== lessonId.toString());
+        timeSlot.currentCapacity = Math.max(0, timeSlot.currentCapacity - lesson.students.length);
+        await timeSlot.save();
+      }
+      
+      return true;
+    } catch (error) {
+      throw error;
     }
-    
-    // Remove the swimmer
-    lesson.swimmers = lesson.swimmers.filter(id => id.toString() !== swimmerId);
-    
-    // If group lesson has no swimmers, cancel it
-    if (lesson.swimmers.length === 0) {
-      lesson.status = "canceled";
-    }
-    
-    await lesson.save();
-    
-    return lesson;
   }
   
-  // Get weekly lesson statistics
-  static async getWeeklyStatistics() {
-    const scheduleService = new ScheduleService();
-    const startDate = scheduleService.getCurrentWeekStart();
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 6);
+  /**
+   * Get lessons by time slot
+   * @param timeSlotId - Time slot ID
+   * @returns Array of lessons
+   */
+  async getLessonsByTimeSlot(timeSlotId: mongoose.Types.ObjectId | string): Promise<ILesson[]> {
+    try {
+      // Get the time slot
+      const timeSlot = await TimeSlot.findById(timeSlotId);
+      
+      if (!timeSlot) {
+        throw new Error('Time slot not found');
+      }
+      
+      // Get the lessons
+      return await Lesson.find({ _id: { $in: timeSlot.lessons } })
+        .populate('instructorId', 'firstName lastName')
+        .populate('students', 'firstName lastName');
+    } catch (error) {
+      throw error;
+    }
+  }
+  
+  /**
+   * Validate lesson data
+   * @param data - Lesson data to validate
+   * @throws Error if data is invalid
+   */
+  private async validateLessonData(data: {
+    instructorId: mongoose.Types.ObjectId | string;
+    students: (mongoose.Types.ObjectId | string)[];
+    type: 'private' | 'group';
+    swimStyle: string;
+    timeSlotId: mongoose.Types.ObjectId | string;
+  }): Promise<void> {
+    // Validate instructor ID
+    if (!mongoose.Types.ObjectId.isValid(data.instructorId)) {
+      throw new Error('Invalid instructor ID format');
+    }
     
-    // Total lessons this week
-    const totalLessons = await Lesson.countDocuments({
-      lessonDate: { $gte: startDate, $lte: endDate },
-      status: { $ne: "canceled" }
+    // Check if instructor exists
+    const instructor = await User.findOne({ 
+      _id: data.instructorId,
+      role: 'instructor'
     });
     
-    // Lessons by type
-    const lessonsByType = await Lesson.aggregate([
-      { $match: { 
-        lessonDate: { $gte: startDate, $lte: endDate },
-        status: { $ne: "canceled" }
-      }},
-      { $group: { _id: "$lessonType", count: { $sum: 1 } } }
-    ]);
-    
-    // Lessons by style
-    const lessonsByStyle = await Lesson.aggregate([
-      { $match: { 
-        lessonDate: { $gte: startDate, $lte: endDate },
-        status: { $ne: "canceled" }
-      }},
-      { $group: { _id: "$swimStyle", count: { $sum: 1 } } }
-    ]);
-    
-    // Lessons by day
-    const lessonsByDay = await Lesson.aggregate([
-      { $match: { 
-        lessonDate: { $gte: startDate, $lte: endDate },
-        status: { $ne: "canceled" }
-      }},
-      { $group: { 
-        _id: { $dayOfWeek: "$lessonDate" }, 
-        count: { $sum: 1 } 
-      }}
-    ]);
-    
-    // Map day numbers to names
-    const dayMap: Record<string, string> = {
-      "1": "Sunday", "2": "Monday", "3": "Tuesday", 
-      "4": "Wednesday", "5": "Thursday", "6": "Friday", "7": "Saturday"
-    };
-    
-    return {
-      totalLessons,
-      lessonsByType: lessonsByType.map(item => ({ 
-        type: item._id, 
-        count: item.count 
-      })),
-      lessonsByStyle: lessonsByStyle.map(item => ({ 
-        style: item._id, 
-        count: item.count 
-      })),
-      lessonsByDay: lessonsByDay.map(item => ({ 
-        day: dayMap[item._id.toString()], 
-        count: item.count 
-      }))
-    };
-  }
-  
-  // Check for scheduling conflicts
-  static async checkLessonConflicts(lessonId: string) {
-    const lesson = await Lesson.findById(lessonId);
-    
-    if (!lesson) {
-      throw new Error("Lesson not found");
+    if (!instructor) {
+      throw new Error('Instructor not found');
     }
     
-    const scheduleService = new ScheduleService();
+    // Validate swimming style
+    this.validateSwimmingStyle(data.swimStyle);
     
-    // Get all lessons for the same instructor on the same day
-    const sameDayLessons = await Lesson.find({
-      instructor: lesson.instructor,
-      lessonDate: lesson.lessonDate,
-      _id: { $ne: lesson._id },
-      status: "scheduled"
-    });
+    // Check if instructor teaches this style
+if (!instructor || !Array.isArray(instructor.swimmingStyles) || !instructor.swimmingStyles.includes(data.swimStyle)) {
+  throw new Error(`Instructor does not teach ${data.swimStyle}`);
+}
+
+    // Validate students
+    if (!Array.isArray(data.students) || data.students.length === 0) {
+      throw new Error('At least one student is required');
+    }
     
-    // Check for time conflicts
-    const conflicts = sameDayLessons.filter(otherLesson => 
-      scheduleService.isTimeOverlap(
-        lesson.startTime,
-        lesson.endTime,
-        otherLesson.startTime,
-        otherLesson.endTime
-      )
-    );
+    // Validate each student ID and check if they are swimmers
+    for (const studentId of data.students) {
+      if (!mongoose.Types.ObjectId.isValid(studentId)) {
+        throw new Error(`Invalid student ID format: ${studentId}`);
+      }
+      
+      const student = await User.findOne({ 
+        _id: studentId,
+        role: 'swimmer'
+      });
+      
+      if (!student) {
+        throw new Error(`Student not found or is not a swimmer: ${studentId}`);
+      }
+    }
     
-    return conflicts.length > 0 ? conflicts : null;
+    // Validate lesson type
+    if (data.type !== 'private' && data.type !== 'group') {
+      throw new Error('Lesson type must be either "private" or "group"');
+    }
+    
+    // For private lessons, only one student is allowed
+    if (data.type === 'private' && data.students.length > 1) {
+      throw new Error('Private lessons can have only one student');
+    }
+    
+    // Validate time slot ID
+    if (!mongoose.Types.ObjectId.isValid(data.timeSlotId)) {
+      throw new Error('Invalid time slot ID format');
+    }
+    
+    // Check if time slot exists
+    const timeSlot = await TimeSlot.findById(data.timeSlotId);
+    
+    if (!timeSlot) {
+      throw new Error('Time slot not found');
+    }
+    
+    // Check if time slot has capacity
+    if (timeSlot.currentCapacity + data.students.length > timeSlot.maxCapacity) {
+      throw new Error('Time slot does not have enough capacity');
+    }
+    
+    // Check if time slot is associated with the instructor
+    if (timeSlot.instructorId.toString() !== data.instructorId.toString()) {
+      throw new Error('Time slot is not associated with the instructor');
+    }
+  }
+  
+  /**
+   * Validate a swimming style
+   * @param style - Swimming style to validate
+   * @throws Error if style is invalid
+   */
+  private validateSwimmingStyle(style: string): void {
+    const validStyles = ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly'];
+    
+    if (!validStyles.includes(style)) {
+      throw new Error(`Invalid swimming style: ${style}`);
+    }
   }
 }
+
+export default new LessonService();

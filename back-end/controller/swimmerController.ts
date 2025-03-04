@@ -1,138 +1,288 @@
-import { Request, Response } from "express";
-import { SwimmerService } from "../services/SwimmerService";
+import { Request, Response } from 'express';
+import mongoose from 'mongoose';
+import SwimmerService from '../services/SwimmerService';
+import { IAuthRequest } from '../middleware/authMiddleware';
 
-export class SwimmerController {
-  // Book a Lesson
-  static async bookLesson(req: Request, res: Response): Promise<void> {
+/**
+ * Controller for swimmer operations
+ */
+class SwimmerController {
+  /**
+   * Get swimmer profile
+   * GET /api/swimmers/:id
+   */
+  async getSwimmerProfile(req: Request, res: Response): Promise<void> {
     try {
-      const { swimmerId } = req.params;
-      const bookingData = req.body;
+      const { id } = req.params;
       
-      if (!swimmerId || !bookingData) {
-        res.status(400).json({ message: "Swimmer ID and booking data are required." });
+      // Validate ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Invalid swimmer ID format' 
+        });
         return;
       }
       
-      const lesson = await SwimmerService.bookLesson(swimmerId, bookingData);
-      res.status(201).json({ message: "Lesson booked successfully", lesson });
+      // Get the swimmer
+      const swimmer = await SwimmerService.getSwimmerById(id);
+      
+      if (!swimmer) {
+        res.status(404).json({ 
+          success: false, 
+          message: 'Swimmer not found' 
+        });
+        return;
+      }
+      
+      res.status(200).json({
+        success: true,
+        data: swimmer
+      });
     } catch (error) {
-      console.error("❌ Booking Error:", error);
-      res.status(400).json({ message: (error as Error).message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve swimmer profile',
+        error: errorMessage
+      });
     }
   }
-
-  // Cancel a Lesson
-  static async cancelLesson(req: Request, res: Response): Promise<void> {
+  
+  /**
+   * Update swimmer preferences
+   * PUT /api/swimmers/:id/preferences
+   */
+  async updatePreferences(req: Request, res: Response): Promise<void> {
     try {
-      const { swimmerId, lessonId } = req.body;
-      
-      if (!swimmerId || !lessonId) {
-        res.status(400).json({ message: "Swimmer ID and Lesson ID are required." });
+      const { id } = req.params;
+      const { swimmingStyles, preferredLessonType } = req.body;
+  
+      // Validate ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Invalid swimmer ID format' 
+        });
         return;
       }
-      
-      const result = await SwimmerService.cancelLesson(swimmerId, lessonId);
-      res.status(200).json(result);
+  
+    // Get authenticated user
+    const authReq = req as IAuthRequest;
+    if (!authReq.user) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required"
+      });
+      return;
+    }
+  
+      // Ensure user is updating their own profile
+        if (authReq.user.id !== id) {
+          res.status(403).json({
+            success: false,
+            message: "Forbidden: Cannot update another swimmer's preferences"
+          });
+          return;
+        }
+
+        // Call the service to update preferences
+    const updatedSwimmer = await SwimmerService.updatePreferences(id, { swimmingStyles, preferredLessonType });
+    if (!updatedSwimmer) {
+      res.status(404).json({
+        success: false,
+        message: "Swimmer not found"
+      });
+      return;
+    }
+  
+      // Send back updated data
+      res.status(200).json({
+        success: true,
+        data: updatedSwimmer
+      });
     } catch (error) {
-      console.error("❌ Cancel Lesson Error:", error);
-      res.status(400).json({ message: (error as Error).message });
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
     }
   }
-
-  // Get Swimmer's Booked Lessons
-  static async getBookedLessons(req: Request, res: Response): Promise<void> {
+  
+  /**
+   * Find available time slots
+   * GET /api/swimmers/timeslots
+   */
+  async findAvailableTimeSlots(req: Request, res: Response): Promise<void> {
     try {
-      const { swimmerId } = req.params;
+      const { date, swimStyle, lessonType } = req.query;
       
-      if (!swimmerId) {
-        res.status(400).json({ message: "Swimmer ID is required." });
-        return;
-      }
+      // Find available time slots
+      const timeSlots = await SwimmerService.findAvailableTimeSlots(
+        date as string | undefined,
+        swimStyle as string | undefined,
+        lessonType as 'private' | 'group' | undefined
+      );
       
-      const lessons = await SwimmerService.getBookedLessons(swimmerId);
-      res.status(200).json(lessons);
+      res.status(200).json({
+        success: true,
+        count: timeSlots.length,
+        data: timeSlots
+      });
     } catch (error) {
-      console.error("❌ Error fetching booked lessons:", error);
-      res.status(400).json({ message: (error as Error).message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to find available time slots',
+        error: errorMessage
+      });
     }
   }
-
-  // Find Available Lessons
-  static async findAvailableLessons(req: Request, res: Response): Promise<void> {
+  
+  /**
+   * Book a lesson
+   * POST /api/swimmers/:id/lessons
+   */
+  async bookLesson(req: Request, res: Response): Promise<void> {
     try {
-      const { swimmerId } = req.params;
-      const { swimStyle, lessonType, preferredDay } = req.query;
+      const { id } = req.params;
+      const { timeSlotId, swimStyle } = req.body;
       
-      if (!swimmerId) {
-        res.status(400).json({ message: "Swimmer ID is required." });
+      // Comprehensive authentication check
+      if (!req.user) {
+        res.status(401).json({ 
+          success: false, 
+          message: 'Authentication required' 
+        });
         return;
       }
+  
+      // Validate swimmer ID matches authenticated user
+      if (req.user.id !== id) {
+        res.status(403).json({ 
+          success: false, 
+          message: 'Unauthorized to book lesson for this swimmer' 
+        });
+        return;
+      }
+  
+      // Delegate to service with robust error handling
+      const lesson = await SwimmerService.bookLesson(id, timeSlotId, swimStyle);
       
-      const criteria: any = {};
-      if (swimStyle) criteria.swimStyle = swimStyle;
-      if (lessonType) criteria.lessonType = lessonType;
-      if (preferredDay) criteria.preferredDay = preferredDay;
-      
-      const availableLessons = await SwimmerService.findAvailableLessons(swimmerId, criteria);
-      res.status(200).json(availableLessons);
+      res.status(201).json({
+        success: true,
+        message: 'Lesson booked successfully',
+        data: lesson
+      });
     } catch (error) {
-      console.error("❌ Error finding available lessons:", error);
-      res.status(400).json({ message: (error as Error).message });
+      console.error('Lesson booking error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Differentiate error types
+      if (errorMessage.includes('capacity')) {
+        res.status(400).json({
+          success: false,
+          message: errorMessage
+        });
+      } else if (errorMessage.includes('not found')) {
+        res.status(404).json({
+          success: false,
+          message: errorMessage
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          message: 'Failed to book lesson',
+          error: errorMessage
+        });
+      }
     }
   }
-
-  // Update Swimmer Profile
-  static async updateProfile(req: Request, res: Response): Promise<void> {
+  
+  /**
+   * Cancel a lesson
+   * DELETE /api/swimmers/:id/lessons/:lessonId
+   */
+  async cancelLesson(req: Request, res: Response): Promise<void> {
     try {
-      const { swimmerId } = req.params;
-      const updateData = req.body;
+      const { id, lessonId } = req.params;
       
-      if (!swimmerId) {
-        res.status(400).json({ message: "Swimmer ID is required." });
+      // Validate IDs
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Invalid swimmer ID format' 
+        });
         return;
       }
       
-      const result = await SwimmerService.updateProfile(swimmerId, updateData);
-      res.status(200).json(result);
+      if (!mongoose.Types.ObjectId.isValid(lessonId)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Invalid lesson ID format' 
+        });
+        return;
+      }
+      
+      // Cancel the lesson
+      const success = await SwimmerService.cancelLesson(id, lessonId);
+      
+      if (!success) {
+        res.status(404).json({ 
+          success: false, 
+          message: 'Failed to cancel lesson' 
+        });
+        return;
+      }
+      
+      res.status(200).json({
+        success: true,
+        message: 'Lesson cancelled successfully'
+      });
     } catch (error) {
-      console.error("❌ Error updating swimmer profile:", error);
-      res.status(400).json({ message: (error as Error).message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to cancel lesson',
+        error: errorMessage
+      });
     }
   }
-
-  // Get Swimmer Details
-  static async getSwimmerDetails(req: Request, res: Response): Promise<void> {
+  
+  /**
+   * Get swimmer lessons
+   * GET /api/swimmers/:id/lessons
+   */
+  async getSwimmerLessons(req: Request, res: Response): Promise<void> {
     try {
-      const { swimmerId } = req.params;
+      const { id } = req.params;
       
-      if (!swimmerId) {
-        res.status(400).json({ message: "Swimmer ID is required." });
+      // Validate ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: 'Invalid swimmer ID format' 
+        });
         return;
       }
       
-      const details = await SwimmerService.getSwimmerDetails(swimmerId);
-      res.status(200).json(details);
-    } catch (error) {
-      console.error("❌ Error fetching swimmer details:", error);
-      res.status(400).json({ message: (error as Error).message });
-    }
-  }
-
-  // Get Swimmer Statistics
-  static async getStatistics(req: Request, res: Response): Promise<void> {
-    try {
-      const { swimmerId } = req.params;
+      // Get the swimmer's lessons
+      const lessons = await SwimmerService.getSwimmerLessons(id);
       
-      if (!swimmerId) {
-        res.status(400).json({ message: "Swimmer ID is required." });
-        return;
-      }
-      
-      const statistics = await SwimmerService.getSwimmerStatistics(swimmerId);
-      res.status(200).json(statistics);
+      res.status(200).json({
+        success: true,
+        count: lessons.length,
+        data: lessons
+      });
     } catch (error) {
-      console.error("❌ Error fetching swimmer statistics:", error);
-      res.status(400).json({ message: (error as Error).message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve swimmer lessons',
+        error: errorMessage
+      });
     }
   }
 }
+
+export default new SwimmerController();

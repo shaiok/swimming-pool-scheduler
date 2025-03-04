@@ -1,29 +1,16 @@
 import mongoose, { Schema, Document } from "mongoose";
 
-export interface ITimeSlot {
-  day: string;
-  startTime: string;
-  endTime: string;
-  isTaken: boolean;
-  instructor: mongoose.Types.ObjectId;
+export interface IWeeklySchedule extends Document {
+  startDate: string;
+  endDate: string;
+  timeSlots: mongoose.Schema.Types.ObjectId[];
 }
 
-export interface ISchedule extends Document {
-  week: string; // E.g., "2025-03-03" (start of the week)
-  availableSlots: ITimeSlot[];
-}
-
-const TimeSlotSchema = new Schema({
-  day: { type: String, required: true }, // Monday, Tuesday, etc.
-  startTime: { type: String, required: true },
-  endTime: { type: String, required: true },
-  isTaken: { type: Boolean, default: false },
-  instructor: { type: Schema.Types.ObjectId, ref: "Instructor", required: true }
+const WeeklyScheduleSchema = new Schema<IWeeklySchedule>({
+  startDate: { type: String, required: true }, 
+  endDate: { type: String, required: true },
+  timeSlots: [{ type: Schema.Types.ObjectId, ref: "TimeSlot" }] 
 });
 
-const ScheduleSchema = new Schema<ISchedule>({
-  week: { type: String, required: true }, // Week identifier
-  availableSlots: [TimeSlotSchema]
-});
-
-export const Schedule = mongoose.model<ISchedule>("Schedule", ScheduleSchema);
+// ✅ Export both the interface and the model
+export const WeeklySchedule = mongoose.model<IWeeklySchedule>("WeeklySchedule", WeeklyScheduleSchema);

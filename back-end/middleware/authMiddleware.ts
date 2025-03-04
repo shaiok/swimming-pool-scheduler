@@ -10,48 +10,76 @@ if (!process.env.JWT_SECRET) {
 
 export const JWT_SECRET = process.env.JWT_SECRET;
 
-
-// **Extend Express Request Type to Include `user`**
-declare module "express" {
-  interface Request {
-    user?: any;
-  }
+// ✅ Define user structure to include "admin"
+interface AuthUser {
+  id: string;
+  role: "swimmer" | "instructor" | "admin"; // ✅ Now includes "admin"
 }
 
-// **Middleware to Verify JWT Token**
+// ✅ Extend Express Request to Include `user`
+export interface IAuthRequest extends Request {
+  user?: AuthUser; // ✅ Now supports "admin"
+}
+
+// ✅ Middleware to Verify JWT Token
 export const authenticateUser = (req: Request, res: Response, next: NextFunction): void => {
   const authHeader = req.header("Authorization");
 
-  console.log("Received Auth Header:", authHeader); // ✅ Debugging
-
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    res.status(401).json({ msg: "Access denied, no token provided" });
-    return;
+      res.status(401).json({ message: "Access denied, no token provided" });
+      return
   }
 
   const token = authHeader.split(" ")[1];
 
-  console.log("Extracted Token:", token); // ✅ Debugging
-
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    console.log("Decoded Token:", decoded); // ✅ Debugging
-
-    (req as any).user = decoded; // ✅ Attach decoded payload to request
+    const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+    (req as IAuthRequest).user = decoded; // ✅ Explicitly cast `req` to `IAuthRequest`
     next();
   } catch (err) {
-    console.error("JWT Verification Failed:", err);
-    res.status(401).json({ msg: "Invalid token" });
+     res.status(401).json({ message: "Invalid or expired token" });
   }
 };
 
-// **Middleware for Role-Based Access**
-export const authorizeRoles = (...allowedRoles: string[]) => {
+// ✅ Middleware for Role-Based Access
+export const authorizeRoles = (...allowedRoles: ("swimmer" | "instructor" | "admin")[]) => {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user || !allowedRoles.includes(req.user.role)) {
-      res.status(403).json({ msg: "Access forbidden: Insufficient permissions" });
-      return; // ✅ Fix: Ensure function exits after sending a response
+    const authReq = req as IAuthRequest;
+
+    console.log(`🔍 Checking role for user: ${authReq.user?.role}`);
+
+    // More robust authentication check
+    if (!authReq.user) {
+      console.log("❌ Access Denied: No authenticated user");
+      res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+      return;
     }
+
+    // Check if user's role is allowed
+    if (!allowedRoles.includes(authReq.user.role)) {
+      console.log("❌ Access Denied: Insufficient role permissions");
+      res.status(403).json({
+        success: false,
+        message: "Access forbidden: Insufficient permissions",
+      });
+      return;
+    }
+
+    // Additional check for resource ownership
+    const resourceId = req.params.id;
+    if (resourceId && authReq.user.id !== resourceId) {
+      console.log("❌ Access Denied: Cannot access another user's resource");
+      res.status(403).json({
+        success: false,
+        message: "Forbidden: Cannot modify another user's resources",
+      });
+      return;
+    }
+
+    console.log("✅ Access granted.");
     next();
   };
 };

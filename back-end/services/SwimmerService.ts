@@ -1,329 +1,327 @@
-import { Instructor } from "../model/instructor";
-import { Lesson } from "../model/lesson";
-import { Swimmer } from "../model/swimmer";
-import { User } from "../model/user";
-import { ScheduleService } from "./ScheduleService ";
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
+import { IUser, User } from '../model/user';
+import { ITimeSlot, TimeSlot } from '../model/timeSlot';
+import { ILesson, Lesson } from '../model/lesson';
 
-// Define interfaces for populated documents
-interface IUserPopulated {
-  _id: mongoose.Types.ObjectId;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-}
 
-interface ISwimmerPopulated extends mongoose.Document {
-  _id: mongoose.Types.ObjectId;
-  user: IUserPopulated;
-  swimmingStyles: string[];
-  lessonPreference: "private" | "group";
-}
 
-interface IInstructorPopulated extends mongoose.Document {
-  _id: mongoose.Types.ObjectId;
-  user: IUserPopulated;
-  swimmingStyles: string[];
-}
-
-export class SwimmerService {
-  // Update swimmer profile
-  static async updateProfile(swimmerId: string, data: {
-    swimmingStyles?: string[];
-    lessonPreference?: "private" | "group";
-    firstName?: string;
-    lastName?: string;
-    phone?: string;
-  }) {
-    const swimmer = await Swimmer.findById(swimmerId);
-    if (!swimmer) {
-      throw new Error("Swimmer not found");
+/**
+ * Service for swimmer operations
+ */
+class SwimmerService {
+  /**
+   * Get a swimmer by ID
+   * @param swimmerId - Swimmer's ID
+   * @returns Swimmer data or null if not found
+   */
+  async getSwimmerById(swimmerId: mongoose.Types.ObjectId | string): Promise<IUser | null> {
+    try {
+      return await User.findOne({ _id: swimmerId, role: 'swimmer' })
+        .select('firstName lastName email phone swimmingStyles preferredLessonType role')
+        .lean(); // Ensure role is included
+    } catch (error) {
+      throw error;
     }
-
-    // Update swimmer-specific data
-    if (data.swimmingStyles) {
-      swimmer.swimmingStyles = data.swimmingStyles;
-    }
-    if (data.lessonPreference) {
-      swimmer.lessonPreference = data.lessonPreference;
-    }
-    await swimmer.save();
-
-    // Update user data if provided
-    if (data.firstName || data.lastName || data.phone) {
-      const user = await User.findById(swimmer.user);
-      if (!user) {
-        throw new Error("User not found");
-      }
-
-      if (data.firstName) user.firstName = data.firstName;
-      if (data.lastName) user.lastName = data.lastName;
-      if (data.phone) user.phone = data.phone;
-      
-      await user.save();
-    }
-
-    // Return updated swimmer with user data
-    return await Swimmer.findById(swimmerId).populate("user");
   }
 
-  // Book a lesson
-  static async bookLesson(swimmerId: string, bookingData: {
-    instructorId: string;
-    day: string;
-    startTime: string;
-    endTime: string;
-    swimStyle: string;
-    lessonType: string;
-  }) {
-    const swimmer = await Swimmer.findById(swimmerId);
-    if (!swimmer) {
-      throw new Error("Swimmer not found");
+  /**
+   * Update swimmer preferences
+   * @param swimmerId - Swimmer's ID
+   * @param updates - Preferences to update
+   * @returns Updated swimmer data or null if not found
+   */
+  async updatePreferences(
+    swimmerId: mongoose.Types.ObjectId | string,
+    updates: {
+      swimmingStyles?: string[];
+      preferredLessonType?: 'private' | 'group' | 'both';
     }
+  ): Promise<IUser | null> {
+    try {
+      // Validate swimming styles if provided
+      if (updates.swimmingStyles) {
+        this.validateSwimmingStyles(updates.swimmingStyles);
+      }
 
-    // Check if the swimmer has a scheduling conflict
-    const conflict = await SwimmerService.checkSchedulingConflict(
-      swimmerId, 
-      bookingData.day, 
-      bookingData.startTime, 
-      bookingData.endTime
-    );
+      // Validate lesson type if provided
+      if (updates.preferredLessonType && !['private', 'group', 'both'].includes(updates.preferredLessonType)) {
+        throw new Error('Invalid preferred lesson type');
+      }
 
-    if (conflict) {
-      throw new Error("You already have a lesson scheduled at this time");
+      // Update the swimmer
+      const updateData: any = {};
+      if (updates.swimmingStyles) updateData.swimmingStyles = updates.swimmingStyles;
+      if (updates.preferredLessonType) updateData.preferredLessonType = updates.preferredLessonType;
+
+      return await User.findOneAndUpdate(
+        { _id: swimmerId, role: 'swimmer' },
+        { $set: updateData },
+        { new: true }
+      ).select('firstName lastName email phone swimmingStyles preferredLessonType');
+    } catch (error) {
+      throw error;
     }
+  }
 
-    const scheduleService = new ScheduleService();
-    
-    // Use the bookLesson method from ScheduleService
-    const lesson = await scheduleService.bookLesson({
-      day: bookingData.day,
-      startTime: bookingData.startTime,
-      endTime: bookingData.endTime,
-      instructorId: bookingData.instructorId,
-      swimmerId: swimmerId,
-      swimStyle: bookingData.swimStyle,
-      lessonType: bookingData.lessonType
+  /**
+   * Book a lesson
+   * @param swimmerId - Swimmer's ID
+   * @param timeSlotId - Time slot ID
+   * @param swimStyle - Swimming style for the lesson
+   * @returns The booked lesson
+   */
+  async bookLesson(
+    swimmerId: mongoose.Types.ObjectId | string,
+    timeSlotId: mongoose.Types.ObjectId | string,
+    swimStyle: string
+  ): Promise<ILesson> {
+    // Validate inputs thoroughly
+    this.validateSwimmingStyle(swimStyle);
+  
+    // Create the lesson first so we have its _id for the time slot update.
+    const lesson = new Lesson({
+      // instructorId will be set after fetching the time slot
+      students: [swimmerId],
+      swimStyle,
+      timeSlotId,
+      // type will be determined based on the time slot's maxCapacity
     });
-
+  
+    // Find the time slot using a field-to-field comparison with $expr
+    const timeSlot = await TimeSlot.findOneAndUpdate(
+      {
+        _id: timeSlotId,
+        $expr: { $lt: ['$currentCapacity', '$maxCapacity'] }
+      },
+      {
+        $inc: { currentCapacity: 1 },
+        $push: { lessons: lesson._id }
+      },
+      {
+        new: true,
+        runValidators: true
+      }
+    );
+  
+    if (!timeSlot) {
+      throw new Error('Time slot is fully booked or not available');
+    }
+  
+    // Now that we have the timeSlot, update lesson properties accordingly.
+    lesson.instructorId = timeSlot.instructorId;
+    lesson.type = timeSlot.maxCapacity > 1 ? 'group' : 'private';
+  
+    // Save the lesson.
+    await lesson.save();
+  
     return lesson;
   }
+  
+  
+  
 
-  // Cancel a booked lesson
-  static async cancelLesson(swimmerId: string, lessonId: string) {
-    const lesson = await Lesson.findOne({
-      _id: lessonId,
-      swimmers: swimmerId,
-      status: "scheduled"
-    });
-
-    if (!lesson) {
-      throw new Error("Lesson not found or already completed/canceled");
-    }
-
-    // Check cancellation policy (e.g., can't cancel less than 24h before)
-    const now = new Date();
-    const lessonDate = new Date(lesson.lessonDate);
-    const hoursDifference = (lessonDate.getTime() - now.getTime()) / (1000 * 60 * 60);
-
-    if (hoursDifference < 24) {
-      throw new Error("Lessons can only be canceled at least 24 hours in advance");
-    }
-
-    // If it's a private lesson, cancel it completely
-    if (lesson.lessonType === "private") {
-      lesson.status = "canceled";
-      await lesson.save();
-    } else {
-      // For group lessons, just remove the swimmer
-      lesson.swimmers = lesson.swimmers.filter(id => id.toString() !== swimmerId);
-      
-      // If no swimmers left, cancel the lesson
-      if (lesson.swimmers.length === 0) {
-        lesson.status = "canceled";
+  /**
+   * Cancel a lesson
+   * @param swimmerId - Swimmer's ID
+   * @param lessonId - Lesson ID
+   * @returns Boolean indicating if the cancellation was successful
+   */
+  async cancelLesson(
+    swimmerId: mongoose.Types.ObjectId | string,
+    lessonId: mongoose.Types.ObjectId | string
+  ): Promise<boolean> {
+    try {
+      // Get the lesson
+      const lesson = await Lesson.findById(lessonId);
+      if (!lesson) {
+        throw new Error('Lesson not found');
       }
-      
-      await lesson.save();
-    }
 
-    return lesson;
-  }
+      // Check if swimmer is in the lesson
+      const studentIds = lesson.students.map(id => id.toString());
+      if (!studentIds.includes(swimmerId.toString())) {
+        throw new Error('Swimmer is not enrolled in this lesson');
+      }
 
-  // Get swimmer's booked lessons
-  static async getBookedLessons(swimmerId: string) {
-    const lessons = await Lesson.find({
-      swimmers: swimmerId,
-      status: { $in: ["scheduled", "completed"] }
-    })
-      .populate("instructor")
-      .sort({ lessonDate: 1, startTime: 1 });
+      // If it's a private lesson, remove the swimmer and delete the lesson
+      if (lesson.type === 'private') {
+        // Get the time slot to update its capacity
+        const timeSlot = await TimeSlot.findOne({ lessons: lessonId });
+        if (timeSlot) {
+          // Remove lesson from time slot
+          timeSlot.lessons = timeSlot.lessons.filter(id => id.toString() !== lessonId.toString());
+          timeSlot.currentCapacity = Math.max(0, timeSlot.currentCapacity - 1);
+          await timeSlot.save();
+        }
 
-    return lessons;
-  }
-
-  // Find available lessons based on criteria
-  static async findAvailableLessons(swimmerId: string, criteria: {
-    swimStyle?: string;
-    lessonType?: string;
-    preferredDay?: string;
-  }) {
-    const scheduleService = new ScheduleService();
-    const availableSlots = await scheduleService.findAvailableSlots(criteria);
-    
-    // Filter out any slots that conflict with the swimmer's existing lessons
-    const swimmer = await Swimmer.findById(swimmerId);
-    if (!swimmer) {
-      throw new Error("Swimmer not found");
-    }
-    
-    const bookedLessons = await Lesson.find({
-      swimmers: swimmerId,
-      status: "scheduled"
-    });
-
-    // Define a function to check for time conflicts
-    const hasTimeConflict = (
-      day: string, 
-      startTime: string, 
-      endTime: string, 
-      lessons: any[]
-    ) => {
-      const scheduleService = new ScheduleService();
-      const start = scheduleService.timeToMinutes(startTime);
-      const end = scheduleService.timeToMinutes(endTime);
-      
-      return lessons.some(lesson => {
-        const lessonDay = scheduleService.getDayName(lesson.lessonDate);
-        if (lessonDay !== day) return false;
+        // Delete the lesson
+        await Lesson.findByIdAndDelete(lessonId);
+      } else {
+        // For group lessons, just remove the swimmer
+        lesson.students = lesson.students.filter(id => id.toString() !== swimmerId.toString());
         
-        const lessonStart = scheduleService.timeToMinutes(lesson.startTime);
-        const lessonEnd = scheduleService.timeToMinutes(lesson.endTime);
-        
-        return (start < lessonEnd && end > lessonStart);
-      });
-    };
-    
-    // Filter out slots that conflict with existing bookings
-    const availableNonConflictingSlots: typeof availableSlots = availableSlots.filter((slot: { day: string; startTime: string; endTime: string; }) => 
-      !hasTimeConflict(slot.day, slot.startTime, slot.endTime, bookedLessons)
-    );
-    
-    return availableNonConflictingSlots;
+        // If no students left, delete the lesson
+        if (lesson.students.length === 0) {
+          // Get the time slot to update its capacity
+          const timeSlot = await TimeSlot.findOne({ lessons: lessonId });
+          if (timeSlot) {
+            // Remove lesson from time slot
+            timeSlot.lessons = timeSlot.lessons.filter(id => id.toString() !== lessonId.toString());
+            timeSlot.currentCapacity = Math.max(0, timeSlot.currentCapacity - 1);
+            await timeSlot.save();
+          }
+
+          // Delete the lesson
+          await Lesson.findByIdAndDelete(lessonId);
+        } else {
+          // Save the updated lesson
+          await lesson.save();
+          
+          // Update time slot capacity
+          const timeSlot = await TimeSlot.findOne({ lessons: lessonId });
+          if (timeSlot) {
+            timeSlot.currentCapacity = Math.max(0, timeSlot.currentCapacity - 1);
+            await timeSlot.save();
+          }
+        }
+      }
+
+      return true;
+    } catch (error) {
+      throw error;
+    }
   }
 
-  // Check if a swimmer has a scheduling conflict
-  private static async checkSchedulingConflict(
-    swimmerId: string, 
-    day: string,
-    startTime: string, 
-    endTime: string
-  ) {
-    const scheduleService = new ScheduleService();
-    const weekStart = scheduleService.getCurrentWeekStart();
-    
-    // Convert day name to actual date
-    const dayIndex = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].indexOf(day);
-    const lessonDate = new Date(weekStart);
-    lessonDate.setDate(lessonDate.getDate() + dayIndex);
-    
-    const lessons = await Lesson.find({
-      swimmers: swimmerId,
-      lessonDate: lessonDate,
-      status: "scheduled"
-    });
-    
-    // Check for time conflicts
-    const start = scheduleService.timeToMinutes(startTime);
-    const end = scheduleService.timeToMinutes(endTime);
-    
-    return lessons.some(lesson => {
-      const lessonStart = scheduleService.timeToMinutes(lesson.startTime);
-      const lessonEnd = scheduleService.timeToMinutes(lesson.endTime);
-      
-      return (start < lessonEnd && end > lessonStart);
-    });
+  /**
+   * Get all lessons for a swimmer
+   * @param swimmerId - Swimmer's ID
+   * @returns Array of lessons
+   */
+  async getSwimmerLessons(swimmerId: mongoose.Types.ObjectId | string): Promise<ILesson[]> {
+    try {
+      return await Lesson.find({ students: swimmerId })
+        .populate('instructorId', 'firstName lastName')
+        .sort({ createdAt: -1 });
+    } catch (error) {
+      throw error;
+    }
   }
 
-  // Get swimmer details with user information
-  static async getSwimmerDetails(swimmerId: string) {
-    const swimmer = await Swimmer.findById(swimmerId).populate<{ user: IUserPopulated }>("user");
+  /**
+   * Find available time slots for a swimmer
+   * @param date - Date to check (optional)
+   * @param swimStyle - Swimming style to filter by (optional)
+   * @param lessonType - Lesson type preference (optional)
+   * @returns Array of available time slots
+   */
+  async findAvailableTimeSlots(
+    date?: string,
+    swimStyle?: string,
+    lessonType?: 'private' | 'group'
+  ): Promise<ITimeSlot[]> {
+    try {
+      // Build query
+      const query: any = {
+        currentCapacity: { $lt: '$maxCapacity' } // Only slots with available capacity
+      };
+
+      // Add date filter if provided
+      if (date) {
+        query.date = date;
+      }
+
+      // Add lesson type filter if provided
+      if (lessonType) {
+        if (lessonType === 'private') {
+          query.maxCapacity = 1;
+        } else {
+          query.maxCapacity = { $gt: 1 };
+        }
+      }
+
+      // Execute query with aggregation to filter by capacity
+      const timeSlots = await TimeSlot.aggregate([
+        {
+          $match: {
+            $expr: { $lt: ['$currentCapacity', '$maxCapacity'] },
+            ...(date ? { date } : {}),
+            ...(lessonType === 'private' ? { maxCapacity: 1 } : {}),
+            ...(lessonType === 'group' ? { maxCapacity: { $gt: 1 } } : {})
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'instructorId',
+            foreignField: '_id',
+            as: 'instructor'
+          }
+        },
+        {
+          $unwind: '$instructor'
+        },
+        ...(swimStyle ? [
+          {
+            $match: {
+              'instructor.swimmingStyles': swimStyle
+            }
+          }
+        ] : []),
+        {
+          $project: {
+            _id: 1,
+            date: 1,
+            startTime: 1,
+            endTime: 1,
+            maxCapacity: 1,
+            currentCapacity: 1,
+            'instructor._id': 1,
+            'instructor.firstName': 1,
+            'instructor.lastName': 1,
+            'instructor.swimmingStyles': 1
+          }
+        }
+      ]);
+
+      return timeSlots;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Validate swimming styles
+   * @param styles - Array of swimming styles to validate
+   * @throws Error if styles are invalid
+   */
+  private validateSwimmingStyles(styles: string[]): void {
+    const validStyles = ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly'];
     
-    if (!swimmer) {
-      throw new Error("Swimmer not found");
+    if (!Array.isArray(styles)) {
+      throw new Error('Swimming styles must be an array');
     }
 
-    return {
-      id: swimmer._id,
-      swimmingStyles: swimmer.swimmingStyles,
-      lessonPreference: swimmer.lessonPreference,
-      user: {
-        id: swimmer.user._id,
-        firstName: swimmer.user.firstName,
-        lastName: swimmer.user.lastName,
-        email: swimmer.user.email,
-        phone: swimmer.user.phone
+    for (const style of styles) {
+      if (!validStyles.includes(style)) {
+        throw new Error(`Invalid swimming style: ${style}`);
       }
-    };
+    }
   }
 
-  // Get swimmer statistics
-  static async getSwimmerStatistics(swimmerId: string) {
-    // Total number of lessons
-    const totalLessons = await Lesson.countDocuments({
-      swimmers: swimmerId,
-      status: { $in: ["scheduled", "completed"] }
-    });
-
-    // Completed lessons
-    const completedLessons = await Lesson.countDocuments({
-      swimmers: swimmerId,
-      status: "completed"
-    });
-
-    // Upcoming lessons
-    const upcomingLessons = await Lesson.countDocuments({
-      swimmers: swimmerId,
-      status: "scheduled",
-      lessonDate: { $gte: new Date() }
-    });
-
-    // Lessons by style
-    const lessonsByStyle = await Lesson.aggregate([
-      { $match: { swimmers: swimmerId, status: { $in: ["scheduled", "completed"] } } },
-      { $group: { _id: "$swimStyle", count: { $sum: 1 } } }
-    ]);
-
-    // Lessons by instructor
-    const lessonsByInstructor = await Lesson.aggregate([
-      { $match: { swimmers: swimmerId, status: { $in: ["scheduled", "completed"] } } },
-      { $group: { _id: "$instructor", count: { $sum: 1 } } }
-    ]);
-
-    // Get instructor names
-    const instructorIds = lessonsByInstructor.map(item => item._id);
-    const instructors = await Instructor.find({ 
-      _id: { $in: instructorIds } 
-    }).populate<{ user: IUserPopulated }>("user");
+  /**
+   * Validate a single swimming style
+   * @param style - Swimming style to validate
+   * @throws Error if style is invalid
+   */
+  private validateSwimmingStyle(style: string): void {
+    const validStyles = ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly'];
     
-    // Create map of instructor IDs to names
-    const instructorMap: Record<string, string> = {};
-    instructors.forEach(instructor => {
-      if (instructor.user && instructor._id) {
-        instructorMap[instructor._id.toString()] = `${instructor.user.firstName} ${instructor.user.lastName}`;
-      }
-    });
-
-    return {
-      totalLessons,
-      completedLessons,
-      upcomingLessons,
-      lessonsByStyle: lessonsByStyle.map(item => ({ style: item._id, count: item.count })),
-      lessonsByInstructor: lessonsByInstructor.map(item => ({ 
-        instructor: instructorMap[item._id.toString()] || "Unknown",
-        instructorId: item._id,
-        count: item.count 
-      }))
-    };
+    if (!validStyles.includes(style)) {
+      throw new Error(`Invalid swimming style: ${style}`);
+    }
   }
 }
+
+
+
+export default new SwimmerService();

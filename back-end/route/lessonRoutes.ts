@@ -1,77 +1,106 @@
-// lessonRoutes.ts
-import express from "express";
-import { LessonController } from "../controller/lessonController";
-import { SwimmerController } from "../controller/swimmerController";
-import { InstructorController } from "../controller/instructorController";
-import { authenticateUser } from "../middleware/authMiddleware";
+import express from 'express';
+import LessonController from '../controller/lessonController';
+import { authenticateUser, authorizeRoles } from '../middleware/authMiddleware';
 
 const router = express.Router();
 
-// Book a Lesson - Use SwimmerController because that's where booking logic is
-router.post("/book", authenticateUser, async (req, res): Promise<void> => {
-  if (!req.user) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
+/**
+ * @route   POST /api/lessons
+ * @desc    Create a new lesson
+ * @access  Private (Admin or Instructor)
+ * @body    {string} instructorId - ID of the instructor
+ * @body    {array} students - Array of student IDs
+ * @body    {string} type - Type of lesson ('private' or 'group')
+ * @body    {string} swimStyle - Swimming style for the lesson
+ * @body    {string} timeSlotId - ID of the time slot
+ */
+router.post(
+  '/',
+  authenticateUser,
+  authorizeRoles('instructor'),
+  LessonController.createLesson
+);
 
-  const { id, role } = req.user;
-  
-  if (role === "swimmer") {
-    req.params.swimmerId = id;
-    await SwimmerController.bookLesson(req, res);
-  } else {
-    res.status(403).json({ message: "Only swimmers can book lessons" });
-  }
-});
+/**
+ * @route   GET /api/lessons
+ * @desc    Get all lessons
+ * @access  Private (Admin or Instructor)
+ * @query   {string} instructorId - Filter by instructor ID (optional)
+ * @query   {string} studentId - Filter by student ID (optional)
+ * @query   {string} type - Filter by lesson type (optional)
+ * @query   {string} swimStyle - Filter by swimming style (optional)
+ */
+router.get(
+  '/',
+  authenticateUser,
+  authorizeRoles('instructor'),
+  LessonController.getAllLessons
+);
 
-// Cancel a Lesson - Use appropriate controller based on role
-router.post("/cancel", authenticateUser, async (req, res): Promise<void> => {
+/**
+ * @route   GET /api/lessons/timeslot/:timeSlotId
+ * @desc    Get lessons by time slot
+ * @access  Private (Admin or Instructor)
+ * @param   {string} timeSlotId - Time slot ID
+ */
+router.get(
+  '/timeslot/:timeSlotId',
+  authenticateUser,
+  authorizeRoles('instructor'),
+  LessonController.getLessonsByTimeSlot
+);
 
-  if (!req.user) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
-  
-  const { userId, role } = req.user; // From auth middleware
-  
-  if (role === "swimmer") {
-    req.body.swimmerId = userId;
-    await SwimmerController.cancelLesson(req, res);
-  } else if (role === "instructor") {
-    req.body.instructorId = userId;
-    await InstructorController.cancelLesson(req, res);
-  } else {
-    res.status(403).json({ message: "Unauthorized to cancel lessons" });
-  }
-  res.end();
-});
+/**
+ * @route   GET /api/lessons/:id
+ * @desc    Get a lesson by ID
+ * @access  Private (Admin, Instructor, or Enrolled Student)
+ * @param   {string} id - Lesson ID
+ * @query   {boolean} populate - Whether to populate related fields (optional)
+ */
+router.get(
+  '/:id',
+  authenticateUser,
+  LessonController.getLessonById
+);
 
-// Get Lessons by Instructor
-router.get("/instructor/:instructorId", authenticateUser, async (req, res) => {
-  // Use the getLessons method which accepts filters
-  req.params.instructorId = req.params.instructorId;
-  return InstructorController.getLessons(req, res);
-});
+/**
+ * @route   POST /api/lessons/:id/students
+ * @desc    Add a student to a lesson
+ * @access  Private (Admin or Instructor)
+ * @param   {string} id - Lesson ID
+ * @body    {string} studentId - ID of the student to add
+ */
+router.post(
+  '/:id/students',
+  authenticateUser,
+  authorizeRoles('instructor'),
+  LessonController.addStudentToLesson
+);
 
-// Get Lessons by Swimmer
-router.get("/swimmer/:swimmerId", authenticateUser, async (req, res) => {
-  req.params.swimmerId = req.params.swimmerId;
-  return SwimmerController.getBookedLessons(req, res);
-});
+/**
+ * @route   DELETE /api/lessons/:id/students/:studentId
+ * @desc    Remove a student from a lesson
+ * @access  Private (Admin, Instructor, or the Student)
+ * @param   {string} id - Lesson ID
+ * @param   {string} studentId - ID of the student to remove
+ */
+router.delete(
+  '/:id/students/:studentId',
+  authenticateUser,
+  LessonController.removeStudentFromLesson
+);
 
-// Get lesson by ID
-router.get("/:lessonId", authenticateUser, LessonController.getLesson);
-
-// Update lesson status
-router.put("/:lessonId/status", authenticateUser, LessonController.updateLessonStatus);
-
-// Add swimmer to group lesson
-router.post("/:lessonId/swimmers", authenticateUser, LessonController.addSwimmerToLesson);
-
-// Remove swimmer from lesson
-router.delete("/:lessonId/swimmers", authenticateUser, LessonController.removeSwimmerFromLesson);
-
-// Get weekly statistics
-router.get("/statistics/weekly", authenticateUser, LessonController.getWeeklyStatistics);
+/**
+ * @route   DELETE /api/lessons/:id
+ * @desc    Cancel a lesson
+ * @access  Private (Admin or Instructor)
+ * @param   {string} id - Lesson ID
+ */
+router.delete(
+  '/:id',
+  authenticateUser,
+  authorizeRoles('instructor'),
+  LessonController.cancelLesson
+);
 
 export default router;
