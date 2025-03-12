@@ -1,0 +1,17 @@
+# .dockerignore
+
+# Ignore local dev directories
+node_modules
+.vscode
+.expo
+scripts
+
+# Ignore version control
+.git
+
+# Ignore any build outputs if you have them
+build
+dist
+
+# If you have environment files you don't want in the image
+.env

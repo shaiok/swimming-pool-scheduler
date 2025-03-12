@@ -1,7 +1,8 @@
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import mongoose from 'mongoose';
 import SwimmerService from '../services/SwimmerService';
 import { IAuthRequest } from '../middleware/authMiddleware';
+import { AuthorizationError, ValidationError } from '../utils/error';
 
 /**
  * Controller for swimmer operations
@@ -143,61 +144,39 @@ class SwimmerController {
    * Book a lesson
    * POST /api/swimmers/:id/lessons
    */
-  async bookLesson(req: Request, res: Response): Promise<void> {
+  async bookLesson(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const { timeSlotId, swimStyle } = req.body;
       
-      // Comprehensive authentication check
       if (!req.user) {
-        res.status(401).json({ 
-          success: false, 
-          message: 'Authentication required' 
-        });
-        return;
+        throw new AuthorizationError('אימות נדרש');
       }
-  
-      // Validate swimmer ID matches authenticated user
+      
       if (req.user.id !== id) {
-        res.status(403).json({ 
-          success: false, 
-          message: 'Unauthorized to book lesson for this swimmer' 
-        });
-        return;
+        throw new AuthorizationError('אין הרשאה לקבוע שיעור לתלמיד אחר');
       }
-  
-      // Delegate to service with robust error handling
-      const lesson = await SwimmerService.bookLesson(id, timeSlotId, swimStyle);
+      
+      if (!timeSlotId) {
+        throw new ValidationError('מזהה חלון זמן נדרש');
+      }
+      
+      if (!swimStyle) {
+        throw new ValidationError('סגנון שחייה נדרש');
+      }
+      
+      const lessonResult = await SwimmerService.bookLesson(id, timeSlotId, swimStyle);
       
       res.status(201).json({
         success: true,
-        message: 'Lesson booked successfully',
-        data: lesson
+        message: 'שיעור נקבע בהצלחה',
+        data: lessonResult,
       });
     } catch (error) {
-      console.error('Lesson booking error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
-      // Differentiate error types
-      if (errorMessage.includes('capacity')) {
-        res.status(400).json({
-          success: false,
-          message: errorMessage
-        });
-      } else if (errorMessage.includes('not found')) {
-        res.status(404).json({
-          success: false,
-          message: errorMessage
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          message: 'Failed to book lesson',
-          error: errorMessage
-        });
-      }
+      next(error);
     }
   }
+  
   
   /**
    * Cancel a lesson

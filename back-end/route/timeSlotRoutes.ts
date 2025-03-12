@@ -1,76 +1,28 @@
 import express from "express";
 import TimeSlotController from "../controller/timeSlotController";
-import { authenticateUser, authorizeRoles } from "../middleware/authMiddleware";
 
 const router = express.Router();
 
-/**
- * @route   POST /api/timeslots
- * @desc    Create a new time slot
- * @access  Private (Instructor only)
- */
-router.post(
-  "/",
-  authenticateUser,
-  authorizeRoles("instructor"),
-  TimeSlotController.createTimeSlot
-);
+// POST /api/timeslots - Create a new time slot
+router.post("/", TimeSlotController.createTimeSlot);
 
-/**
- * @route   GET /api/timeslots
- * @desc    Get all time slots
- * @access  Public
- */
-router.get("/", TimeSlotController.getAllTimeSlots);
+// GET /api/timeslots/available - Retrieve available time slots with filters
+// Example: /api/timeslots/available?date=2025-06-01&swimStyle=Freestyle&lessonType=private
+router.get("/available", TimeSlotController.getAvailableTimeSlots);
 
-/**
- * @route   GET /api/timeslots/:id
- * @desc    Get a time slot by ID
- * @access  Public
- */
+// GET /api/timeslots/:id - Retrieve a specific time slot by ID
 router.get("/:id", TimeSlotController.getTimeSlotById);
 
-/**
- * @route   PUT /api/timeslots/:id
- * @desc    Update a time slot
- * @access  Private (Instructor only)
- */
-router.put(
-  "/:id",
-  authenticateUser,
-  authorizeRoles("instructor"),
-  TimeSlotController.updateTimeSlot
-);
+// GET /api/timeslots - Retrieve all time slots with optional filters (e.g., date, instructorId, status)
+router.get("/", TimeSlotController.getAllTimeSlots);
 
-/**
- * @route   DELETE /api/timeslots/:id
- * @desc    Delete a time slot
- * @access  Private (Instructor only)
- */
-router.delete(
-  "/:id",
-  authenticateUser,
-  authorizeRoles("instructor"),
-  TimeSlotController.deleteTimeSlot
-);
+// PUT /api/timeslots/:id - Update a time slot
+router.put("/:id", TimeSlotController.updateTimeSlot);
 
-/**
- * @route   GET /api/timeslots/schedule/:scheduleId
- * @desc    Get time slots by weekly schedule
- * @access  Public
- */
-router.get("/schedule/:scheduleId", TimeSlotController.findTimeSlotsBySchedule);
+// DELETE /api/timeslots/:id - Delete a time slot
+router.delete("/:id", TimeSlotController.deleteTimeSlot);
 
-/**
- * @route   POST /api/timeslots/generate
- * @desc    Generate time slots from instructor availability
- * @access  Private (Instructor only)
- */
-router.post(
-  "/generate",
-  authenticateUser,
-  authorizeRoles("instructor"),
-  TimeSlotController.generateTimeSlots
-);
+// POST /api/timeslots/generate - Generate time slots from an instructor's availability slot
+router.post("/generate", TimeSlotController.generateTimeSlots);
 
 export default router;

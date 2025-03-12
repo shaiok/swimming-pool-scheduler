@@ -33,7 +33,7 @@ router.post(
 router.get(
   '/',
   authenticateUser,
-  authorizeRoles('instructor'),
+  authorizeRoles('instructor','swimmer'),
   LessonController.getAllLessons
 );
 

@@ -52,6 +52,7 @@ router.put(
  */
 router.post(
   '/:id/lessons',
+  authenticateUser,
   authorizeRoles('swimmer'),
   SwimmerController.bookLesson
 );

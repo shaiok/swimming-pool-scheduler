@@ -46,7 +46,7 @@ export class AuthService {
       phone,
       password: hashedPassword,
       role,
-      swimmingStyles: role === "swimmer" ? swimmingStyles : [], // ✅ Assign swimming styles for swimmers
+      swimmingStyles: swimmingStyles,
       preferredLessonType: role === "swimmer" ? preferredLessonType : undefined, // ✅ Fix: Include preferredLessonType
       availability: role === "instructor" ? [] : undefined, // ✅ Only instructors have availability
     });

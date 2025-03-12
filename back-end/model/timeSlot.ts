@@ -5,7 +5,7 @@ export interface ITimeSlot extends Document {
   startTime: string;
   endTime: string;
   instructorId: mongoose.Schema.Types.ObjectId;
-  swimStyles: string[];
+  swimmingStyles: string[]; // Standardized name from swimStyles -> swimmingStyles
   type: "private" | "group";
   status: "available" | "booked" | "cancelled";
   maxCapacity: number;
@@ -18,11 +18,12 @@ const TimeSlotSchema = new Schema<ITimeSlot>({
   startTime: { type: String, required: true },
   endTime: { type: String, required: true },
   instructorId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-  swimStyles: { 
+  swimmingStyles: { 
     type: [String], 
-    enum: ["Freestyle", "Backstroke", "Breaststroke", "Butterfly"],
+    enum: ["חופש", "גב", "חזה", "פרפר"],
     required: true 
   },
+  
   type: { type: String, enum: ["private", "group"], required: true },
   status: { type: String, enum: ["available", "booked", "cancelled"], default: "available" },
   maxCapacity: { type: Number, required: true },

@@ -1,92 +1,33 @@
-import express from 'express';
-import InstructorController from '../controller/instructorController';
-import { authenticateUser, authorizeRoles } from '../middleware/authMiddleware';
+import express from "express";
+import InstructorController from "../controller/instructorController";
 
 const router = express.Router();
 
-/**
- * @route   GET /api/instructors
- * @desc    Get all instructors
- * @access  Public
- */
-router.get('/', InstructorController.getAllInstructors);
+// GET /api/instructors - Retrieve all instructors
+router.get("/", InstructorController.getAllInstructors);
 
-/**
- * @route   GET /api/instructors/available
- * @desc    Get available instructors
- * @access  Public
- * @query   {string} date - Date to check
- * @query   {string} startTime - Start time to check
- * @query   {string} endTime - End time to check (optional)
- * @query   {string} swimmingStyle - Swimming style to filter by (optional)
- */
-router.get('/available', InstructorController.getAvailableInstructors);
+// GET /api/instructors/:id - Retrieve a single instructor by ID
+router.get("/:id", InstructorController.getInstructorById);
 
-/**
- * @route   GET /api/instructors/:id
- * @desc    Get instructor by ID
- * @access  Public
- * @param   {string} id - Instructor ID
- */
-router.get('/:id', InstructorController.getInstructorById);
+// GET /api/instructors/:id/availability - Get instructor availability (optionally filtered by date)
+// Example: /api/instructors/:id/availability?date=2025-06-01
+router.get("/:id/availability", InstructorController.getAvailability);
 
-/**
- * @route   PUT /api/instructors/:id/availability
- * @desc    Update instructor availability
- * @access  Private (Instructor only)
- * @param   {string} id - Instructor ID
- * @body    {array} availability - Array of availability slots
- */
-router.put(
-  '/:id/availability',
-  authenticateUser,
-  authorizeRoles('instructor'),
-  InstructorController.updateAvailability
-);
+// PUT /api/instructors/:id/availability - Set an instructor's availability for a specific day/time range
+router.put("/:id/availability", InstructorController.setAvailability);
 
-/**
- * @route   POST /api/instructors/:id/availability
- * @desc    Add an availability slot
- * @access  Private (Instructor only)
- * @param   {string} id - Instructor ID
- * @body    {string} date - Date of the slot
- * @body    {string} startTime - Start time of the slot
- * @body    {string} endTime - End time of the slot
- */
-router.post(
-  '/:id/availability',
-  authenticateUser,
-  authorizeRoles('instructor'),
-  InstructorController.addAvailabilitySlot
-);
+// DELETE /api/instructors/:id/availability - Remove instructor availability for a specific date
+router.delete("/:id/availability", InstructorController.removeAvailability);
 
-/**
- * @route   DELETE /api/instructors/:id/availability
- * @desc    Remove an availability slot
- * @access  Private (Instructor only)
- * @param   {string} id - Instructor ID
- * @body    {string} date - Date of the slot to remove
- * @body    {string} startTime - Start time of the slot to remove
- */
-router.delete(
-  '/:id/availability',
-  authenticateUser,
-  authorizeRoles('instructor'),
-  InstructorController.removeAvailabilitySlot
-);
+// PUT /api/instructors/:id/swimmingstyles - Update an instructor's swimming styles
+router.put("/:id/swimmingstyles", InstructorController.updateSwimmingStyles);
 
-/**
- * @route   PUT /api/instructors/:id/swimmingstyles
- * @desc    Update instructor swimming styles
- * @access  Private (Instructor only)
- * @param   {string} id - Instructor ID
- * @body    {array} swimmingStyles - Array of swimming styles
- */
-router.put(
-  '/:id/swimmingstyles',
-  authenticateUser,
-  authorizeRoles('instructor'),
-  InstructorController.updateSwimmingStyles
-);
+// GET /api/instructors/:id/schedule - Get an instructor's schedule for a specific date
+// Example: /api/instructors/:id/schedule?date=2025-06-01
+router.get("/:id/schedule", InstructorController.getSchedule);
+
+// GET /api/instructors/available - Get available instructors with filters
+// Example: /api/instructors/available?date=2025-06-01&startTime=09:00&endTime=10:00&swimmingStyle=Freestyle
+router.get("/available", InstructorController.getAvailableInstructors);
 
 export default router;

@@ -5,9 +5,9 @@ import authRoutes from "./route/authRoutes";
 import instructorRouter from "./route/instructorRoutes";
 import swimmerRouter from "./route/swimmerRoutes";
 import lessonRouter from "./route/lessonRoutes";
-import scheduleRouter from "./route/scheduleMangerRoutes";
 import timeSlotRouter from "./route/timeSlotRoutes";
 import mongoose from "mongoose";
+import { errorMiddleware } from "./utils/error"; // Import the error middleware
 
 // Extend Express Request to include `user`
 declare module "express-serve-static-core" {
@@ -27,7 +27,11 @@ dotenv.config();
 const app = express();
 
 // ✅ Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*', // Allow all origins
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -36,33 +40,35 @@ app.use("/api/auth", authRoutes);
 app.use("/api/lessons", lessonRouter);
 app.use("/api/instructors", instructorRouter);
 app.use("/api/swimmers", swimmerRouter);
-app.use("/api/schedules", scheduleRouter);
 app.use("/api/timeslots", timeSlotRouter);
 
 // ✅ API Health Check Route
 app.get("/api", (req: Request, res: Response) => {
-  res.json({ 
-    message: "Swimming Pool Scheduler API",
-    status: "Active",
-    version: "1.0.0"
+  res.json({
+     message: "Swimming Pool Scheduler API",
+     status: "Active",
+     version: "1.0.0"
   });
 });
 
-// ✅ 404 Route Handler
+// ✅ 404 Route Handler - Keep this before the error handlers
 app.use((req: Request, res: Response) => {
   res.status(404).json({ message: "Route not found" });
 });
 
-// ✅ Global Error Handler
+// ✅ Use the custom error middleware
+app.use(errorMiddleware);
+
+// ✅ Global Error Handler (fallback for any errors not caught by the custom middleware)
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error("Unhandled error:", err);
   res.status(500).json({ 
-    message: "Internal server error", 
+    success: false,
+    message: "Internal server error",
     error: process.env.NODE_ENV === "development" ? err.message : undefined
   });
 });
-
-
+ 
 const MONGO_URI = process.env.MONGO_URI;
 
 if (MONGO_URI) {
@@ -75,9 +81,8 @@ if (MONGO_URI) {
 
 // ✅ Start server only if not running Jest tests
 if (process.env.NODE_ENV !== "test") {
-  const PORT = process.env.PORT || 5000;
-  app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 5000;
+  app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
 }
 
 export default app;
-//

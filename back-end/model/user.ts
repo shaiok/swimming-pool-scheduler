@@ -22,10 +22,18 @@ const UserSchema = new Schema<IUser>(
     phone: { type: String, required: true, match: /^[0-9]{10,15}$/, unique: true }, // 🔹 Validate phone number
     password: { type: String, required: true, select: false }, // 🔹 Password should be hashed before saving
     role: { type: String, enum: ["swimmer", "instructor", "admin"], required: true }, 
-    swimmingStyles: { type: [String], enum: ["Freestyle", "Backstroke", "Breaststroke", "Butterfly"], default: [] },
-
+    swimmingStyles: {
+      type: [String],
+      enum: ["אישי", "חתירה", "גב", "חזה", "פרפר"],
+      default: []
+    }
+    ,    
     // 🔹 Fields for Swimmers
-    preferredLessonType: { type: String, enum: ["private", "group","both"], required: function () { return this.role === "swimmer"; } },
+    preferredLessonType: 
+    { type: [String],
+       enum: ["private", "group","both"],
+        required: function () { return this.role === "swimmer"; } 
+      },
    
 
     // 🔹 Fields for Instructors (Date-based availability)
